@@ -149,15 +149,15 @@ def upload_file():
                 reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
             
             page_count = len(reader.pages)
+        except UnicodeDecodeError:
+            return jsonify({'error': 'PDF file is corrupted or has encoding issues'}), 400
         except Exception as e:
-            return jsonify({'error': f'PDF error: {str(e)}'}), 400
+            return jsonify({'error': f'Invalid PDF file: {str(e)}'}), 400
         
-        # Update user's page usage after getting correct page count
-        User.update_pages_used(user_id, page_count)
-        
+        # Validate bank statement BEFORE updating page count
         bank_name = detect_bank_from_pdf(pdf_bytes)
         if not bank_name:
-            return jsonify({'error': 'Could not detect bank name'}), 400
+            return jsonify({'error': 'Could not detect bank name. Please upload a valid bank statement.'}), 400
         
         bank_type, standardized_name = classify_bank_type(bank_name)
         print(f"\nDEBUG: bank_type={bank_type}, standardized_name={standardized_name}")
@@ -165,7 +165,7 @@ def upload_file():
         if not bank_type:
             bank_type = "bordered"
         
-        # JK Bank, Indian Bank, and Canara Bank use custom parsers
+        # Process bank statement based on type
         if bank_type in ["jk_bank", "indian_bank", "canara_bank"]:
             if bank_type == "jk_bank":
                 print(f">>> {standardized_name} detected, using JK parser <<<")
@@ -183,8 +183,12 @@ def upload_file():
             print(">>> Calling process_borderless_pdf <<<")
             df, opening_balance, closing_balance, transaction_total = process_borderless_pdf(pdf_bytes, file.filename)
         
+        # Validate that transactions were found
         if df is None or df.empty:
-            return jsonify({'error': 'No transactions found'}), 400
+            return jsonify({'error': 'No transactions found. Please upload a valid bank statement.'}), 400
+        
+        # Only update page count AFTER successful validation and processing
+        User.update_pages_used(user_id, page_count)
         
         print("\n" + "="*80)
         print(f"Uploaded: {file.filename}")

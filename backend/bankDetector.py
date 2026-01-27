@@ -37,23 +37,55 @@ def get_ocr_instance():
     return _ocr_instance
 
 def decrypt_pdf_bytes(pdf_bytes, password):
-    """Decrypt password-protected PDF"""
-    reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
-    writer = PyPDF2.PdfWriter()
-    
+    """Decrypt password-protected PDF with multiple methods"""
+    # Method 1: Try PyMuPDF first (better encryption support)
     try:
-        result = reader.decrypt(password)
-        if result == 0:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        if doc.needs_pass:
+            if doc.authenticate(password):
+                # Convert back to bytes
+                output_bytes = doc.tobytes()
+                doc.close()
+                return output_bytes
+            doc.close()
+    except Exception as e:
+        print(f"PyMuPDF decryption failed: {e}")
+    
+    # Method 2: Try PyPDF2 with multiple password variations
+    try:
+        reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+        writer = PyPDF2.PdfWriter()
+        
+        # Try different password encodings
+        passwords_to_try = [
+            password,
+            password.strip(),
+            password.upper(),
+            password.lower()
+        ]
+        
+        decryption_successful = False
+        for pwd in passwords_to_try:
+            try:
+                result = reader.decrypt(pwd)
+                if result > 0:  # Success
+                    decryption_successful = True
+                    break
+            except Exception:
+                continue
+        
+        if not decryption_successful:
             return None
-    except Exception:
+        
+        for page in reader.pages:
+            writer.add_page(page)
+        
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()
+    except Exception as e:
+        print(f"PyPDF2 decryption failed: {e}")
         return None
-    
-    for page in reader.pages:
-        writer.add_page(page)
-    
-    output = io.BytesIO()
-    writer.write(output)
-    return output.getvalue()
 
 def load_reference_logos():
     """Load reference logos from logos folder"""

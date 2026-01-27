@@ -1,19 +1,70 @@
 from flask import request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt
 from models.user import User
+from otp_service import otp_service
 import re
 
 # JWT blacklist for logout
 blacklisted_tokens = set()
 
+def send_otp():
+    """Send OTP to email address"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'email' not in data:
+            return jsonify({'error': 'Email address is required'}), 400
+        
+        email = data['email'].lower().strip()
+        
+        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
+            return jsonify({'error': 'Invalid email format'}), 400
+        
+        if User.find_by_email(email):
+            return jsonify({'error': 'Email already registered'}), 409
+        
+        success, message = otp_service.send_otp(email)
+        
+        if success:
+            return jsonify({'message': message}), 200
+        else:
+            return jsonify({'error': message}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def verify_otp():
+    """Verify OTP"""
+    try:
+        data = request.get_json()
+        
+        if not data or not all(k in data for k in ('email', 'otp')):
+            return jsonify({'error': 'Email and OTP are required'}), 400
+        
+        email = data['email'].lower().strip()
+        otp = data['otp'].strip()
+        
+        success, message = otp_service.verify_otp(email, otp)
+        
+        if success:
+            return jsonify({'message': message, 'verified': True}), 200
+        else:
+            return jsonify({'error': message, 'verified': False}), 400
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 def signup():
-    """User registration"""
+    """User registration with email OTP verification"""
     try:
         data = request.get_json()
         
         # Validation
-        if not data or not all(k in data for k in ('email', 'password', 'name', 'phone')):
-            return jsonify({'error': 'Email, password, name, and phone are required'}), 400
+        if not data or not all(k in data for k in ('email', 'password', 'name', 'phone', 'email_verified')):
+            return jsonify({'error': 'All fields including email verification are required'}), 400
+        
+        if not data['email_verified']:
+            return jsonify({'error': 'Email must be verified before signup'}), 400
         
         email = data['email'].lower().strip()
         password = data['password']
@@ -32,9 +83,9 @@ def signup():
         if len(name) < 2:
             return jsonify({'error': 'Name must be at least 2 characters'}), 400
         
-        # Phone validation
-        if not re.match(r'^[+]?[0-9]{10,15}$', phone):
-            return jsonify({'error': 'Invalid phone number format'}), 400
+        # Phone validation (required but no verification needed)
+        if not phone or len(phone) < 10:
+            return jsonify({'error': 'Valid WhatsApp number is required'}), 400
         
         # Create user
         user_id = User.create_user(email, password, name, phone)

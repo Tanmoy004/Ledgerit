@@ -28,3 +28,6 @@ Pillow==10.0.1
 
 # Additional Dependencies
 bson==0.5.10
+
+# SMS/OTP Service
+twilio==8.10.0

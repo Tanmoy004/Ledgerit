@@ -44,6 +44,11 @@ class User:
         return User.collection.find_one({'email': email})
     
     @staticmethod
+    def find_by_phone(phone):
+        """Find user by phone number"""
+        return User.collection.find_one({'phone': phone})
+    
+    @staticmethod
     def find_by_id(user_id):
         """Find user by ID"""
         return User.collection.find_one({'_id': ObjectId(user_id)})
