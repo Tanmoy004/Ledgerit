@@ -1,0 +1,188 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+}
+
+/* Prevent section overlapping */
+.section-container {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .section-container {
+    margin-bottom: 2rem;
+  }
+}
+
+.section-container:last-child {
+  margin-bottom: 0;
+}
+
+/* Ensure proper stacking context */
+.summary-section {
+  position: relative;
+  z-index: 10;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+  clear: both;
+}
+
+@media (min-width: 768px) {
+  .summary-section {
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+  }
+}
+
+.export-section {
+  position: relative;
+  z-index: 20;
+  margin-bottom: 1.5rem;
+  clear: both;
+}
+
+@media (min-width: 768px) {
+  .export-section {
+    margin-bottom: 2rem;
+  }
+}
+
+.transaction-section {
+  position: relative;
+  z-index: 30;
+  margin-bottom: 1.5rem;
+  clear: both;
+}
+
+@media (min-width: 768px) {
+  .transaction-section {
+    margin-bottom: 2rem;
+  }
+}
+
+/* Mobile table optimizations */
+@media (max-width: 768px) {
+  .mobile-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  
+  .mobile-table table {
+    min-width: 600px;
+  }
+  
+  .mobile-table th,
+  .mobile-table td {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+}
+
+/* Touch-friendly buttons */
+@media (max-width: 768px) {
+  .touch-button {
+    min-height: 44px;
+    padding: 12px 16px;
+  }
+}
+
+/* Responsive grid improvements */
+.summary-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 480px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .summary-grid {
+    gap: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .summary-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Performance optimizations */
+.gpu-accelerated {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Focus styles for accessibility */
+.focus-visible:focus {
+  outline: 2px solid #2463eb;
+  outline-offset: 2px;
+}
+
+/* Smooth animations */
+.smooth-transition {
+  transition: all 0.2s ease-in-out;
+}
+
+
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.8s infinite linear;
+}
+
+@keyframes slide-in {
+  0% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
