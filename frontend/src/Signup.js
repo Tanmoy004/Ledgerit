@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
 export default function Signup({ onLogin, switchToLogin }) {
@@ -14,6 +14,15 @@ export default function Signup({ onLogin, switchToLogin }) {
   const [emailVerified, setEmailVerified] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [countdown, setCountdown] = useState(0);
+
+  useEffect(() => {
+    let timer;
+    if (countdown > 0) {
+      timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   const sendOTP = async () => {
     if (!formData.email) {
@@ -25,6 +34,7 @@ export default function Signup({ onLogin, switchToLogin }) {
     try {
       await axios.post('http://localhost:5000/api/auth/send-otp', { email: formData.email });
       setOtpSent(true);
+      setCountdown(300);
       setError('');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to send OTP');
@@ -39,6 +49,7 @@ export default function Signup({ onLogin, switchToLogin }) {
     }
 
     setLoading(true);
+    setError('');
     try {
       await axios.post('http://localhost:5000/api/auth/verify-otp', { 
         email: formData.email, 
@@ -128,10 +139,10 @@ export default function Signup({ onLogin, switchToLogin }) {
                   <button 
                     type="button" 
                     onClick={sendOTP}
-                    disabled={loading || !formData.email}
+                    disabled={loading || !formData.email || countdown > 0}
                     className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {otpSent ? 'Resend' : 'Send OTP'}
+                    {countdown > 0 ? `${Math.floor(countdown/60)}:${(countdown%60).toString().padStart(2,'0')}` : (otpSent ? 'Resend' : 'Send OTP')}
                   </button>
                 )}
                 {emailVerified && (
@@ -163,7 +174,21 @@ export default function Signup({ onLogin, switchToLogin }) {
                     Verify
                   </button>
                 </div>
-                <p className="text-sm text-gray-500 mt-1">Check your email for the verification code</p>
+                <p className="text-sm text-gray-500 mt-1 flex flex-col sm:flex-row sm:items-center sm:gap-1">
+                  <span>Check your email for the verification code</span>
+                  {countdown > 0 && (
+                    <span className="text-red-500 font-medium sm:font-normal sm:ml-1">
+                      (Expires in {Math.floor(countdown / 60)}:
+                      {(countdown % 60).toString().padStart(2, '0')})
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                {error}
               </div>
             )}
 
@@ -208,12 +233,6 @@ export default function Signup({ onLogin, switchToLogin }) {
                 placeholder="Confirm your password"
               />
             </div>
-
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                {error}
-              </div>
-            )}
 
             <button
               type="submit"

@@ -36,14 +36,92 @@ class OTPService:
                 msg['Subject'] = "Ledgerit - Email Verification Code"
                 
                 body = f"""
+                <!DOCTYPE html>
                 <html>
-                <body>
-                    <h2>Ledgerit Email Verification</h2>
-                    <p>Your verification code is: <strong>{otp}</strong></p>
-                    <p>This code will expire in 5 minutes.</p>
-                    <p>If you didn't request this code, please ignore this email.</p>
+                <head>
+                    <meta charset="UTF-8" />
+                    <title>Ledgerit Email Verification</title>
+                </head>
+                <body style="margin:0; padding:0; background-color:#f4f4f4; font-family: Arial, Helvetica, sans-serif;">
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4; padding:20px;">
+                    <tr>
+                        <td align="center">
+                        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:6px; overflow:hidden;">
+
+                            <!-- Header -->
+                           <tr>
+  <td style="background-color:#232f3e; padding:16px 24px;">
+    <table cellpadding="0" cellspacing="0" width="100%">
+      <tr>
+        <td align="left" style="vertical-align:middle;">
+          <img
+            src="https://drive.google.com/file/d/1k2esEMDatclZNjj8d6ug--t_PoEWJsJI/view?usp=sharing"
+            alt="Ledgerit"
+            width="120"
+            style="display:block; border:0; outline:none; text-decoration:none;"
+          />
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+
+                            <!-- Body -->
+                            <tr>
+                            <td style="padding:24px; color:#111111;">
+                                <p style="font-size:16px; margin:0 0 16px;">
+                                Hello,
+                                </p>
+
+                                <p style="font-size:16px; margin:0 0 16px;">
+                                We received a request to verify your email address for your Ledgerit account.
+                                </p>
+
+                                <p style="font-size:16px; margin:0 0 8px;">
+                                Your verification code is:
+                                </p>
+
+                                <!-- OTP Box -->
+                                <div style="
+                                font-size:28px;
+                                font-weight:bold;
+                                letter-spacing:6px;
+                                color:#111111;
+                                background-color:#f1f3f3;
+                                padding:12px 16px;
+                                display:inline-block;
+                                border-radius:4px;
+                                margin:12px 0 20px;
+                                ">
+                                {otp}
+                                </div>
+
+                                <p style="font-size:14px; color:#555555; margin:0 0 16px;">
+                                This code will expire in <strong>5 minutes</strong>.
+                                </p>
+
+                                <p style="font-size:14px; color:#555555; margin:0;">
+                                If you did not request this code, please ignore this email.
+                                </p>
+                            </td>
+                            </tr>
+
+                            <!-- Footer -->
+                            <tr>
+                            <td style="padding:16px 24px; background-color:#f8f8f8; font-size:12px; color:#777777;">
+                                <p style="margin:0;">
+                                © 2026 Ledgerit. All rights reserved.
+                                </p>
+                            </td>
+                            </tr>
+
+                        </table>
+                        </td>
+                    </tr>
+                    </table>
                 </body>
                 </html>
+
                 """
                 
                 msg.attach(MIMEText(body, 'html'))
