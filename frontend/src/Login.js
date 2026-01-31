@@ -26,7 +26,11 @@ export default function Login({ onLogin, switchToSignup }) {
       localStorage.setItem('user', JSON.stringify(response.data.user));
       onLogin(response.data.user);
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed');
+      if (err.code === 'ECONNREFUSED' || err.message === 'Network Error') {
+        setError('Service temporarily unavailable. Please try again in a moment.');
+      } else {
+        setError(err.response?.data?.error || 'Login failed. Please check your credentials.');
+      }
     } finally {
       setLoading(false);
     }

@@ -1,0 +1,46 @@
+[#TDL: 2.0]
+
+;; Ledgerit Bank Statement Import TDL
+;; Version: 1.0
+;; Description: Import bank statements processed by Ledgerit
+
+[Collection: Ledgerit Menu]
+    Type        : Menu
+    Item        : "Ledgerit Import" : Display : Ledgerit Import Form
+
+[Menu: Ledgerit Import]
+    Item        : "Import Bank Statement" : Call : Ledgerit Import Function
+
+[Function: Ledgerit Import Function]
+    00 : CALL : "Import XML File"
+
+[Form: Ledgerit Import Form]
+    Use         : Name Form
+    Local       : Field : Default : "Select Ledgerit XML File"
+    Button      : "Import", "Cancel"
+    
+    [Field: XML File Path]
+        Use     : Name Field
+        Set As  : $$FilePath
+        Type    : String
+        Width   : 40
+        
+[Report: Ledgerit Import Report]
+    Use         : DSP Template
+    Title       : "Ledgerit Bank Statement Import"
+    Form        : Ledgerit Import Form
+
+;; Add to Gateway of Tally
+[#Menu: Gateway of Tally]
+    Add         : Item : Before : @@locQuit : "Ledgerit" : Call : Ledgerit Import Form
+
+;; XML Import Configuration
+[System: Formula]
+    Ledgerit XML Path   : $$FilePath
+    
+[Collection: Import Collection]
+    Type                : Vouchers
+    Child Of            : $$Owner
+    Fetch               : VoucherNumber, Date, Narration, LedgerName, Amount
+    
+;; End of TDL

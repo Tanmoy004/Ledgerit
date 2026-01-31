@@ -293,5 +293,30 @@ def export_tally():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/download/tdl', methods=['GET'])
+def download_tdl():
+    try:
+        import zipfile
+        import tempfile
+        
+        # Create temporary zip file
+        temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+        
+        with zipfile.ZipFile(temp_zip.name, 'w') as zip_file:
+            # Add TDL file
+            zip_file.write('tdl/Ledgerit.tdl', 'Ledgerit.tdl')
+            # Add README
+            zip_file.write('tdl/README.txt', 'Installation_Guide.txt')
+        
+        return send_file(
+            temp_zip.name,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name='Ledgerit_TDL.zip'
+        )
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

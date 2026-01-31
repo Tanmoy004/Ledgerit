@@ -156,6 +156,9 @@ export default function App() {
     const isPDF = name.endsWith('.pdf') || selectedFile.type === 'application/pdf';
     if (!isPDF) { setError('Please select a valid PDF file.'); return; }
     setFile(selectedFile); setError(''); setPassword(''); setShowPasswordPrompt(false);
+    // Show immediate loading feedback
+    setLoading(true);
+    setProgress(5); // Start with 5% immediately
     // Auto-upload when file is selected
     uploadFile(selectedFile);
   };
@@ -270,17 +273,21 @@ export default function App() {
     let progressInterval;
 
     try {
-      // Simulate progress for better UX
+      // Faster progress simulation for better UX
       progressInterval = setInterval(() => {
-        setProgress(prev => prev < 90 ? prev + Math.random() * 10 : prev);
-      }, 300);
+        setProgress(prev => {
+          if (prev < 30) return prev + Math.random() * 15; // Fast initial progress
+          if (prev < 70) return prev + Math.random() * 8;  // Medium progress
+          return prev < 95 ? prev + Math.random() * 3 : prev; // Slow final progress
+        });
+      }, 150); // Reduced from 300ms to 150ms
 
       const res = await axios.post('http://localhost:5000/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        timeout: 180000
+        timeout: 120000 // Reduced from 180000 (3min) to 120000 (2min)
       });
 
       clearInterval(progressInterval);
@@ -322,12 +329,12 @@ export default function App() {
           setError('Session expired. Please login again.');
         }
       } else if (err.code === 'ECONNABORTED') setError('Request timed out. Please try again.');
-      else if (err.code === 'ECONNREFUSED' || err.message === 'Network Error') setError('Cannot connect to server. Please ensure Flask server is running: python flask_app.py');
-      else setError(err.response?.data?.error || 'An error occurred: ' + err.message);
+      else if (err.code === 'ECONNREFUSED' || err.message === 'Network Error') setError('Service temporarily unavailable. Please try again in a moment.');
+      else setError(err.response?.data?.error || 'An error occurred. Please try again.');
       setTransactions([]);
     } finally {
       setLoading(false);
-      setTimeout(() => setProgress(0), 1000);
+      setTimeout(() => setProgress(0), 500); // Reduced from 1000ms
     }
   };
 
@@ -843,11 +850,13 @@ export default function App() {
                 />
               </div>
 
-              {/* Status text */}
+              {/* Status text with more detailed feedback */}
               <p className="mt-2 text-xs text-blue-600">
-                {progress < 40 && 'Uploading PDF securely…'}
-                {progress >= 40 && progress < 85 && 'Extracting transactions…'}
-                {progress >= 85 && 'Finalizing data…'}
+                {progress < 20 && 'Uploading PDF securely…'}
+                {progress >= 20 && progress < 40 && 'Analyzing document structure…'}
+                {progress >= 40 && progress < 70 && 'Extracting transactions…'}
+                {progress >= 70 && progress < 90 && 'Processing data…'}
+                {progress >= 90 && 'Finalizing results…'}
               </p>
             </div>
           )}
@@ -1528,7 +1537,22 @@ export default function App() {
 
               <div className="flex gap-3 mt-6">
                 <button
-                  onClick={handleXmlDownload}
+                  onClick={async () => {
+                    try {
+                      const response = await fetch('http://localhost:5000/download/tdl');
+                      const blob = await response.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = 'Ledgerit_TDL.zip';
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      window.URL.revokeObjectURL(url);
+                    } catch (error) {
+                      console.error('Download failed:', error);
+                    }
+                  }}
                   className="flex-1 px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-medium"
                 >
                   Tally TDL

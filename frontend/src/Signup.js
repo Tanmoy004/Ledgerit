@@ -37,7 +37,11 @@ export default function Signup({ onLogin, switchToLogin }) {
       setCountdown(300);
       setError('');
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to send OTP');
+      if (err.code === 'ECONNREFUSED' || err.message === 'Network Error') {
+        setError('Service temporarily unavailable. Please try again in a moment.');
+      } else {
+        setError(err.response?.data?.error || 'Failed to send OTP. Please try again.');
+      }
     }
     setLoading(false);
   };
@@ -58,7 +62,11 @@ export default function Signup({ onLogin, switchToLogin }) {
       setEmailVerified(true);
       setError('');
     } catch (err) {
-      setError(err.response?.data?.error || 'Invalid OTP');
+      if (err.code === 'ECONNREFUSED' || err.message === 'Network Error') {
+        setError('Service temporarily unavailable. Please try again in a moment.');
+      } else {
+        setError(err.response?.data?.error || 'Invalid OTP. Please try again.');
+      }
     }
     setLoading(false);
   };
@@ -92,7 +100,11 @@ export default function Signup({ onLogin, switchToLogin }) {
       localStorage.setItem('user', JSON.stringify(response.data.user));
       onLogin(response.data.user);
     } catch (err) {
-      setError(err.response?.data?.error || 'Signup failed');
+      if (err.code === 'ECONNREFUSED' || err.message === 'Network Error') {
+        setError('Service temporarily unavailable. Please try again in a moment.');
+      } else {
+        setError(err.response?.data?.error || 'Signup failed. Please try again.');
+      }
     }
     setLoading(false);
   };
