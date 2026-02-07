@@ -6,11 +6,14 @@ import Login from './Login';
 import Signup from './Signup';
 import Subscription from './Subscription';
 
+// API Configuration - Dynamic base URL
+const API_BASE_URL = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000`;
+
 // Fully responsive version with mobile-first layout, collapsible navigation, and responsive table/cards
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState('home');
-  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
+  const [authMode, setAuthMode] = useState(null); // null, 'login' or 'signup'
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showXmlModal, setShowXmlModal] = useState(false);
@@ -22,7 +25,6 @@ export default function App() {
     endDate: '',
     fileName: 'transactions'
   });
-  const [showFileNameModal, setShowFileNameModal] = useState(false);
   const [filteredCount, setFilteredCount] = useState(0);
   const [file, setFile] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -35,7 +37,6 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [viewMode, setViewMode] = useState('table'); // table | cards for mobile
   const [openDropdown, setOpenDropdown] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState(null);
@@ -46,7 +47,6 @@ export default function App() {
   const [editIndex, setEditIndex] = useState(null);
   const [formData, setFormData] = useState({});
   const [toast, setToast] = useState({ show: false, message: '', type: 'error' });
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
 
 
   // Helper function to determine if column should be hidden on mobile
@@ -137,12 +137,23 @@ export default function App() {
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
+    
+    // Check if user is authenticated before uploading
+    if (!isAuthenticated) {
+      setAuthMode('login');
+      return;
+    }
+    
     const droppedFile = e.dataTransfer.files[0];
     if (!droppedFile) return;
     const name = droppedFile.name.toLowerCase();
     const isPDF = name.endsWith('.pdf') || droppedFile.type === 'application/pdf';
     if (isPDF) {
       setFile(droppedFile); setError(''); setPassword(''); setShowPasswordPrompt(false);
+      // Clear previous data
+      setTransactions([]);
+      setColumns([]);
+      setMetadata({});
       uploadFile(droppedFile);
     }
     else { setError('Please upload a valid PDF file'); }
@@ -151,11 +162,22 @@ export default function App() {
   const handleFileSelect = (e) => {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
+    
+    // Check if user is authenticated before uploading
+    if (!isAuthenticated) {
+      setAuthMode('login');
+      return;
+    }
+    
     if (selectedFile.size > 50 * 1024 * 1024) { setError('File size too large. Maximum 50MB allowed.'); return; }
     const name = selectedFile.name.toLowerCase();
     const isPDF = name.endsWith('.pdf') || selectedFile.type === 'application/pdf';
     if (!isPDF) { setError('Please select a valid PDF file.'); return; }
     setFile(selectedFile); setError(''); setPassword(''); setShowPasswordPrompt(false);
+    // Clear previous data
+    setTransactions([]);
+    setColumns([]);
+    setMetadata({});
     // Show immediate loading feedback
     setLoading(true);
     setProgress(5); // Start with 5% immediately
@@ -188,7 +210,7 @@ export default function App() {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const response = await axios.get('http://localhost:5000/api/auth/profile', {
+      const response = await axios.get(`${API_BASE_URL}/api/auth/profile`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       console.log('User stats fetched:', response.data.user);
@@ -206,7 +228,7 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await axios.post('http://localhost:5000/api/auth/logout');
+      await axios.post(`${API_BASE_URL}/api/auth/logout`);
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
@@ -222,6 +244,90 @@ export default function App() {
 
 
   useEffect(() => {
+    const getFilteredTransactions = () => {
+      if (!xmlConfig.fromDate || !xmlConfig.endDate) return transactions;
+      
+      const dateColIndex = columns.findIndex(col => 
+        col.toLowerCase().includes('date') && !col.toLowerCase().includes('value')
+      );
+      
+      if (dateColIndex === -1) return transactions;
+
+      const parseTransactionDate = (dateStr) => {
+        if (!dateStr) return null;
+
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          return new Date(dateStr);
+        }
+
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+          const [day, month, year] = dateStr.split('/');
+          return new Date(year, month - 1, day);
+        }
+
+        if (/^\d{2}\/\d{2}\/\d{2}$/.test(dateStr)) {
+          const [day, month, year] = dateStr.split('/');
+          const fullYear = parseInt(year) < 50 ? '20' + year : '19' + year;
+          return new Date(fullYear, month - 1, day);
+        }
+
+        if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) {
+          const [day, month, year] = dateStr.split('-');
+          return new Date(year, month - 1, day);
+        }
+
+        if (/^\d{2}-\d{2}-\d{2}$/.test(dateStr)) {
+          const [day, month, year] = dateStr.split('-');
+          const fullYear = parseInt(year) < 50 ? '20' + year : '19' + year;
+          return new Date(fullYear, month - 1, day);
+        }
+
+        const monthMap = {
+          'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3,
+          'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7,
+          'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+        };
+
+        const parts = dateStr.split(/[-/]/);
+        if (parts.length === 3) {
+          let [day, month, year] = parts;
+
+          if (monthMap.hasOwnProperty(month)) {
+            month = monthMap[month];
+          } else {
+            month = parseInt(month) - 1;
+          }
+
+          return new Date(year, month, day);
+        }
+        return null;
+      };
+
+      const parseInputDate = (dateStr) => {
+        return new Date(dateStr);
+      };
+
+      const fromDateObj = parseInputDate(xmlConfig.fromDate);
+      const endDateObj = parseInputDate(xmlConfig.endDate);
+
+      if (!fromDateObj || !endDateObj) return transactions;
+
+      fromDateObj.setHours(0, 0, 0, 0);
+      endDateObj.setHours(23, 59, 59, 999);
+
+      return transactions.filter(row => {
+        const rowDate = row[dateColIndex];
+        if (!rowDate) return false;
+
+        const rowDateObj = parseTransactionDate(rowDate);
+        if (!rowDateObj) return false;
+
+        rowDateObj.setHours(12, 0, 0, 0);
+
+        return rowDateObj >= fromDateObj && rowDateObj <= endDateObj;
+      });
+    };
+
     const filtered = getFilteredTransactions();
     setFilteredCount(filtered.length);
   }, [xmlConfig.fromDate, xmlConfig.endDate, transactions, columns]);
@@ -229,38 +335,193 @@ export default function App() {
   // Update opening and closing balance when transactions change
   useEffect(() => {
     if (transactions.length > 0 && columns.length > 0) {
-      const balanceColIndex = columns.findIndex(col =>
-        String(col).toLowerCase().includes('balance')
-      );
-      const withdrawalColIndex = columns.findIndex(col =>
-        String(col).toLowerCase().includes('withdrawal')
-      );
-      const depositColIndex = columns.findIndex(col =>
-        String(col).toLowerCase().includes('deposit')
-      );
+      const balanceColIndex = columns.findIndex(col => String(col).toLowerCase().includes('balance'));
+      const dateColIndex = columns.findIndex(col => String(col).toLowerCase().includes('date') && !String(col).toLowerCase().includes('value'));
+      if (balanceColIndex === -1 || dateColIndex === -1) return;
 
-      if (balanceColIndex !== -1) {
-        const firstTransaction = transactions[0];
-        const lastTransaction = transactions[transactions.length - 1];
+      // Find all possible transaction amount columns
+      const withdrawalColIndex = columns.findIndex(col => String(col).toLowerCase().includes('withdrawal'));
+      const depositColIndex = columns.findIndex(col => String(col).toLowerCase().includes('deposit'));
+      const debitColIndex = columns.findIndex(col => String(col).toLowerCase().includes('debit') && !String(col).toLowerCase().includes('card'));
+      const creditColIndex = columns.findIndex(col => String(col).toLowerCase().includes('credit') && !String(col).toLowerCase().includes('card'));
+      const drCrColIndex = columns.findIndex(col => String(col).toLowerCase().includes('dr/cr') || String(col).toLowerCase().includes('dr / cr'));
+      const amountColIndex = columns.findIndex(col => String(col).toLowerCase() === 'amount' || String(col).toLowerCase().includes('amount'));
 
-        // Calculate opening balance
-        let openingBalance = parseFloat(String(firstTransaction[balanceColIndex]).replace(/[^\d.-]/g, '')) || 0;
+      // Helper to parse amount with embedded Dr/Cr like "10.00 (Dr)"
+      const parseAmountWithDrCr = (str) => {
+        if (!str) return { amount: 0, type: null };
+        const s = String(str).trim();
+        const drMatch = s.match(/([\d,.-]+)\s*\(\s*dr\s*\)/i);
+        const crMatch = s.match(/([\d,.-]+)\s*\(\s*cr\s*\)/i);
+        if (drMatch) return { amount: parseFloat(drMatch[1].replace(/,/g, '')) || 0, type: 'DR' };
+        if (crMatch) return { amount: parseFloat(crMatch[1].replace(/,/g, '')) || 0, type: 'CR' };
+        return { amount: parseFloat(s.replace(/[^\d.-]/g, '')) || 0, type: null };
+      };
 
-        if (withdrawalColIndex !== -1 && depositColIndex !== -1) {
-          const firstWithdrawal = parseFloat(String(firstTransaction[withdrawalColIndex]).replace(/[^\d.-]/g, '')) || 0;
-          const firstDeposit = parseFloat(String(firstTransaction[depositColIndex]).replace(/[^\d.-]/g, '')) || 0;
-
-          // Opening balance = First transaction balance + withdrawal - deposit
-          openingBalance = openingBalance + firstWithdrawal - firstDeposit;
+      // Parse dates to find oldest and newest transactions
+      const parseDate = (dateStr) => {
+        if (!dateStr) return null;
+        const str = String(dateStr).trim();
+        
+        // Handle "DD MMM YYYY" format (space-separated)
+        const spaceMatch = str.match(/^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})$/i);
+        if (spaceMatch) {
+          const [, day, month, year] = spaceMatch;
+          const monthMap = { 'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12' };
+          return new Date(`${year}-${monthMap[month]}-${day.padStart(2, '0')}`);
         }
+        
+        const parts = str.split(/[-/\s]/);
+        if (parts.length === 3) {
+          let [day, month, year] = parts;
+          if (year.length === 2) year = '20' + year;
+          const monthMap = { 'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12' };
+          if (monthMap[month]) month = monthMap[month];
+          return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+        }
+        return null;
+      };
 
-        // Update metadata with new balances
-        setMetadata(prev => ({
-          ...prev,
-          opening_balance: openingBalance,
-          closing_balance: lastTransaction[balanceColIndex]
-        }));
+      let oldestIndex = 0, newestIndex = 0;
+      let oldestDate = parseDate(transactions[0][dateColIndex]);
+      let newestDate = oldestDate;
+
+      // First pass: find oldest and newest dates
+      transactions.forEach((row, i) => {
+        const date = parseDate(row[dateColIndex]);
+        if (date) {
+          if (date < oldestDate) {
+            oldestDate = date;
+            oldestIndex = i;
+          } else if (date.getTime() === oldestDate.getTime()) {
+            oldestIndex = i; // Keep updating to get last occurrence
+          }
+          
+          if (date > newestDate) {
+            newestDate = date;
+            newestIndex = i;
+          } else if (date.getTime() === newestDate.getTime()) {
+            newestIndex = i; // Keep updating to get last occurrence
+          }
+        }
+      });
+
+      // Determine if data is chronological or reverse
+      const isChronological = oldestIndex < newestIndex;
+
+      // Second pass: for same-date transactions, pick correct one based on order
+      transactions.forEach((row, i) => {
+        const date = parseDate(row[dateColIndex]);
+        if (date) {
+          if (date.getTime() === oldestDate.getTime()) {
+            const currentBalance = parseFloat(String(row[balanceColIndex]).replace(/[^\d.-]/g, '')) || 0;
+            const oldestCurrentBalance = parseFloat(String(transactions[oldestIndex][balanceColIndex]).replace(/[^\d.-]/g, '')) || 0;
+            if (isChronological) {
+              // Chronological: pick highest balance (after all transactions)
+              if (currentBalance > oldestCurrentBalance) oldestIndex = i;
+            } else {
+              // Reverse: pick lowest balance (first transaction)
+              if (currentBalance < oldestCurrentBalance) oldestIndex = i;
+            }
+          }
+          
+          if (date.getTime() === newestDate.getTime()) {
+            const currentBalance = parseFloat(String(row[balanceColIndex]).replace(/[^\d.-]/g, '')) || 0;
+            const newestCurrentBalance = parseFloat(String(transactions[newestIndex][balanceColIndex]).replace(/[^\d.-]/g, '')) || 0;
+            if (isChronological) {
+              // Chronological: pick lowest balance (before all transactions)
+              if (currentBalance < newestCurrentBalance) newestIndex = i;
+            } else {
+              // Reverse: pick highest balance (last transaction)
+              if (currentBalance > newestCurrentBalance) newestIndex = i;
+            }
+          }
+        }
+      });
+
+      const oldestBalanceStr = String(transactions[oldestIndex][balanceColIndex]);
+      const oldestBalance = parseAmountWithDrCr(oldestBalanceStr).amount || parseFloat(oldestBalanceStr.replace(/[^\d.-]/g, '')) || 0;
+      const newestBalance = parseFloat(String(transactions[newestIndex][balanceColIndex]).replace(/[^\d.-]/g, '')) || 0;
+
+      let openingBalance, closingBalance;
+
+      // Try Withdrawal/Deposit columns
+      if (withdrawalColIndex !== -1 && depositColIndex !== -1) {
+        const withdrawal = parseFloat(String(transactions[oldestIndex][withdrawalColIndex]).replace(/[^\d.-]/g, '')) || 0;
+        const deposit = parseFloat(String(transactions[oldestIndex][depositColIndex]).replace(/[^\d.-]/g, '')) || 0;
+        
+        if (withdrawal === 0 && deposit === 0) {
+          openingBalance = oldestBalance;
+        } else {
+          openingBalance = oldestBalance + withdrawal - deposit;
+        }
+        closingBalance = newestBalance;
       }
+      // Try Debit/Credit columns
+      else if (debitColIndex !== -1 && creditColIndex !== -1) {
+        const debit = parseFloat(String(transactions[oldestIndex][debitColIndex]).replace(/[^\d.-]/g, '')) || 0;
+        const credit = parseFloat(String(transactions[oldestIndex][creditColIndex]).replace(/[^\d.-]/g, '')) || 0;
+        
+        if (debit === 0 && credit === 0) {
+          openingBalance = oldestBalance;
+        } else {
+          openingBalance = oldestBalance + debit - credit;
+        }
+        closingBalance = newestBalance;
+      }
+      // Try Amount + DR/CR columns OR Amount with embedded Dr/Cr
+      else if (amountColIndex !== -1) {
+        const amountStr = String(transactions[oldestIndex][amountColIndex]);
+        const parsed = parseAmountWithDrCr(amountStr);
+        
+        if (parsed.type) {
+          // Amount has embedded Dr/Cr like "10.00 (Dr)"
+          if (parsed.amount === 0) {
+            openingBalance = oldestBalance;
+          } else {
+            openingBalance = parsed.type === 'DR' ? oldestBalance + parsed.amount : oldestBalance - parsed.amount;
+          }
+        } else if (drCrColIndex !== -1) {
+          // Separate DR/CR column exists
+          const drCr = String(transactions[oldestIndex][drCrColIndex]).trim().toUpperCase();
+          if (parsed.amount === 0) {
+            openingBalance = oldestBalance;
+          } else {
+            openingBalance = drCr === 'DR' ? oldestBalance + parsed.amount : oldestBalance - parsed.amount;
+          }
+        } else {
+          openingBalance = oldestBalance;
+        }
+        closingBalance = newestBalance;
+      }
+      // Fallback: Calculate from balance difference
+      else {
+        // Check if data is chronological or reverse
+        const isChronological = oldestIndex < newestIndex;
+        
+        if (isChronological) {
+          // For chronological: opening is before first transaction
+          // Try to infer from balance progression
+          if (oldestIndex > 0) {
+            // Use previous row's balance as opening
+            openingBalance = parseFloat(String(transactions[oldestIndex - 1][balanceColIndex]).replace(/[^\d.-]/g, '')) || oldestBalance;
+          } else {
+            openingBalance = oldestBalance;
+          }
+          closingBalance = newestBalance;
+        } else {
+          // For reverse chronological: opening is after last transaction
+          if (oldestIndex < transactions.length - 1) {
+            // Use next row's balance as opening
+            openingBalance = parseFloat(String(transactions[oldestIndex + 1][balanceColIndex]).replace(/[^\d.-]/g, '')) || oldestBalance;
+          } else {
+            openingBalance = oldestBalance;
+          }
+          closingBalance = newestBalance;
+        }
+      }
+
+      setMetadata(prev => ({ ...prev, opening_balance: openingBalance, closing_balance: closingBalance }));
     }
   }, [transactions, columns]);
 
@@ -282,7 +543,7 @@ export default function App() {
         });
       }, 150); // Reduced from 300ms to 150ms
 
-      const res = await axios.post('http://localhost:5000/upload', formData, {
+      const res = await axios.post(`${API_BASE_URL}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -294,7 +555,7 @@ export default function App() {
       setProgress(100);
       setTransactions(res.data.transactions || []);
       setColumns(res.data.columns || []);
-      setMetadata(res.data.metadata || {});
+      // Don't set metadata here - let frontend calculate it
       setShowPasswordPrompt(false);
 
       // Update user stats if provided
@@ -338,9 +599,6 @@ export default function App() {
     }
   };
 
-  const PAGE_SIZE = 10;
-
-  // Existing state
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
 
@@ -620,7 +878,6 @@ export default function App() {
       const cleanAmount = amount.replace(/[^0-9.-]/g, '');
       const voucherType = withdrawal ? 'Payment' : 'Receipt';
 
-      // Clean description for XML
       const cleanDescription = description
         .replace(/ï¿¾/g, '')
         .replace(/[\r\n\t]/g, ' ')
@@ -629,8 +886,8 @@ export default function App() {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&apos;')
-        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, ' ')
-        .split('').filter(char => char.charCodeAt(0) < 65534).join('')
+        .replace(/[\uFFFE\uFFFF]/g, ' ')
+        .split('').filter(char => char.charCodeAt(0) >= 32 && char.charCodeAt(0) < 65534).join('')
         .trim();
 
       xmlContent += `<TALLYMESSAGE xmlns:UDF="TallyUDF">
@@ -698,11 +955,12 @@ export default function App() {
   }
 
   // Authentication pages
-  if (!isAuthenticated) {
-    if (authMode === 'signup') {
-      return <Signup onLogin={handleLogin} switchToLogin={() => setAuthMode('login')} />;
-    }
-    return <Login onLogin={handleLogin} switchToSignup={() => setAuthMode('signup')} />;
+  if (!isAuthenticated && authMode === 'login') {
+    return <Login onLogin={handleLogin} switchToSignup={() => setAuthMode('signup')} onBack={() => setAuthMode(null)} />;
+  }
+  
+  if (!isAuthenticated && authMode === 'signup') {
+    return <Signup onLogin={handleLogin} switchToLogin={() => setAuthMode('login')} />;
   }
 
   // Subscription page
@@ -734,16 +992,27 @@ export default function App() {
             <button onClick={() => setCurrentPage('support')} className="text-gray-700 hover:text-blue-600 font-medium">Support</button>
           </nav>
           <div className="hidden md:flex items-center space-x-4">
-            <span className="text-sm text-gray-600">Welcome, {user?.name || 'User'}</span>
-            <div className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-              {user?.stats?.pages_used || 0}/{user?.stats?.pages_limit === Infinity ? '∞' : user?.stats?.pages_limit || 100} pages
-            </div>
-            <button
-              onClick={handleLogout}
-              className="text-gray-700 hover:text-red-600 font-medium"
-            >
-              Logout
-            </button>
+            {isAuthenticated ? (
+              <>
+                <span className="text-sm text-gray-600">Welcome, {user?.name || 'User'}</span>
+                <div className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                  {user?.stats?.pages_used || 0}/{user?.stats?.pages_limit === Infinity ? '∞' : user?.stats?.pages_limit || 100} pages
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="text-gray-700 hover:text-red-600 font-medium"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setAuthMode('login')}
+                className="text-gray-700 hover:text-blue-600 font-medium"
+              >
+                Login
+              </button>
+            )}
           </div>
           <button className="md:hidden p-2" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
@@ -756,11 +1025,17 @@ export default function App() {
               <button onClick={() => { setCurrentPage('features'); setMobileMenuOpen(false); }} className="py-2 text-left">Features</button>
               <button onClick={() => { setCurrentPage('support'); setMobileMenuOpen(false); }} className="py-2 text-left">Support</button>
               <div className="border-t pt-2">
-                <div className="text-sm text-gray-600 py-1">Welcome, {user?.name || 'User'}</div>
-                <div className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded mb-2 inline-block">
-                  {user?.stats?.pages_used || 0}/{user?.stats?.pages_limit === Infinity ? '∞' : user?.stats?.pages_limit || 100} pages
-                </div>
-                <button onClick={handleLogout} className="py-2 text-left text-red-600 w-full">Logout</button>
+                {isAuthenticated ? (
+                  <>
+                    <div className="text-sm text-gray-600 py-1">Welcome, {user?.name || 'User'}</div>
+                    <div className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded mb-2 inline-block">
+                      {user?.stats?.pages_used || 0}/{user?.stats?.pages_limit === Infinity ? '∞' : user?.stats?.pages_limit || 100} pages
+                    </div>
+                    <button onClick={handleLogout} className="py-2 text-left text-red-600 w-full">Logout</button>
+                  </>
+                ) : (
+                  <button onClick={() => { setAuthMode('login'); setMobileMenuOpen(false); }} className="py-2 text-left w-full">Login</button>
+                )}
               </div>
             </div>
           </div>
@@ -796,8 +1071,8 @@ export default function App() {
             onDrop={handleDrop}
             className={`border-2 border-dashed rounded-xl p-6 sm:p-10 text-center transition ${isDragging ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}
           >
-            <input id="file-upload" type="file" accept=".pdf" onChange={handleFileSelect} className="hidden" />
-            <label htmlFor="file-upload" className="cursor-pointer inline-block bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-lg font-medium">
+            <input id="file-upload" type="file" accept=".pdf" onChange={handleFileSelect} className="hidden" disabled={!isAuthenticated} />
+            <label htmlFor="file-upload" onClick={(e) => { if (!isAuthenticated) { e.preventDefault(); setAuthMode('login'); } }} className="cursor-pointer inline-block bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-lg font-medium">
               {loading ? (
                 <div className="flex items-center gap-3">
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -944,15 +1219,19 @@ export default function App() {
                                   ? "text-left font-semibold text-red-600"
                                   : columns[c].toLowerCase().includes('deposit') && cell && cell !== '-' && parseFloat(cell.replace(/[^\d.-]/g, '')) > 0
                                     ? "text-left font-semibold text-green-600"
-                                    : (/amount/i.test(columns[c]) && /^\s*[\d,.-]+\s*$/.test(cell) && row.some(rowCell => /^\s*dr\s*$/i.test(rowCell))) ||
-                                      (/debit/i.test(columns[c]) && /^\s*[\d,.-]+\s*$/.test(cell) && parseFloat(cell.replace(/[^\d.-]/g, '')) > 0)
+                                    : columns[c].toLowerCase().includes('amount') && row.some(rowCell => String(rowCell).trim().toLowerCase() === 'dr')
                                       ? "text-left font-semibold text-red-600"
-                                      : (/amount/i.test(columns[c]) && /^\s*[\d,.-]+\s*$/.test(cell) && row.some(rowCell => /^\s*cr\s*$/i.test(rowCell))) ||
-                                        (/credit/i.test(columns[c]) && /^\s*[\d,.-]+\s*$/.test(cell) && parseFloat(cell.replace(/[^\d.-]/g, '')) > 0)
+                                      : columns[c].toLowerCase().includes('amount') && row.some(rowCell => String(rowCell).trim().toLowerCase() === 'cr')
                                         ? "text-left font-semibold text-green-600"
-                                        : /amount|balance/i.test(columns[c])
-                                          ? "text-left font-semibold text-gray-900"
-                                          : "text-gray-700"
+                                        : (/amount/i.test(columns[c]) && /^\s*[\d,.-]+\s*$/.test(cell) && row.some(rowCell => /^\s*dr\s*$/i.test(rowCell))) ||
+                                          (/debit/i.test(columns[c]) && /^\s*[\d,.-]+\s*$/.test(cell) && parseFloat(cell.replace(/[^\d.-]/g, '')) > 0)
+                                          ? "text-left font-semibold text-red-600"
+                                          : (/amount/i.test(columns[c]) && /^\s*[\d,.-]+\s*$/.test(cell) && row.some(rowCell => /^\s*cr\s*$/i.test(rowCell))) ||
+                                            (/credit/i.test(columns[c]) && /^\s*[\d,.-]+\s*$/.test(cell) && parseFloat(cell.replace(/[^\d.-]/g, '')) > 0)
+                                            ? "text-left font-semibold text-green-600"
+                                            : /amount|balance/i.test(columns[c])
+                                              ? "text-left font-semibold text-gray-900"
+                                              : "text-gray-700"
                               }`}
 
                             >
@@ -1289,24 +1568,16 @@ export default function App() {
                         }
 
                         // Handle DD-MMM-YYYY format (from other banks)
-                        const monthMap = {
-                          'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
-                          'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
-                          'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
-                        };
                         const parts = String(dateStr).split(/[-/]/);
                         if (parts.length === 3) {
                           let [day, month, year] = parts;
-                          const monthMap = {
+                          const monthNames = {
                             'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
                             'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
-                            'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12',
-                            'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04',
-                            'MAY': '05', 'JUN': '06', 'JUL': '07', 'AUG': '08',
-                            'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'
+                            'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
                           };
-                          if (monthMap[month]) {
-                            month = monthMap[month];
+                          if (monthNames[month]) {
+                            month = monthNames[month];
                           } else {
                             month = month.padStart(2, '0');
                           }
@@ -1539,7 +1810,7 @@ export default function App() {
                 <button
                   onClick={async () => {
                     try {
-                      const response = await fetch('http://localhost:5000/download/tdl');
+                      const response = await fetch(`${API_BASE_URL}/download/tdl`);
                       const blob = await response.blob();
                       const url = window.URL.createObjectURL(blob);
                       const a = document.createElement('a');

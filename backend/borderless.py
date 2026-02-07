@@ -1,6 +1,17 @@
 import pandas as pd
 from img2table.document import PDF
-from img2table.ocr import PaddleOCR
+try:
+    from img2table.ocr import PaddleOCR
+except ImportError:
+    # Fallback to EasyOCR if PaddleOCR is not available
+    import easyocr
+    class PaddleOCR:
+        def __init__(self, lang="en"):
+            self.reader = easyocr.Reader([lang])
+        
+        def __call__(self, image):
+            return self.reader.readtext(image)
+
 from pathlib import Path
 import re
 import PyPDF2

@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
+// API Configuration
+const API_BASE_URL = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000`;
+
 export default function Signup({ onLogin, switchToLogin }) {
   const [formData, setFormData] = useState({
     name: '',
@@ -32,7 +35,7 @@ export default function Signup({ onLogin, switchToLogin }) {
 
     setLoading(true);
     try {
-      await axios.post('http://localhost:5000/api/auth/send-otp', { email: formData.email });
+      await axios.post(`${API_BASE_URL}/api/auth/send-otp`, { email: formData.email });
       setOtpSent(true);
       setCountdown(300);
       setError('');
@@ -55,7 +58,7 @@ export default function Signup({ onLogin, switchToLogin }) {
     setLoading(true);
     setError('');
     try {
-      await axios.post('http://localhost:5000/api/auth/verify-otp', { 
+      await axios.post(`${API_BASE_URL}/api/auth/verify-otp`, { 
         email: formData.email, 
         otp: otp 
       });
@@ -91,7 +94,7 @@ export default function Signup({ onLogin, switchToLogin }) {
 
     setLoading(true);
     try {
-      const response = await axios.post('http://localhost:5000/api/auth/signup', {
+      const response = await axios.post(`${API_BASE_URL}/api/auth/signup`, {
         ...formData,
         email_verified: emailVerified
       });

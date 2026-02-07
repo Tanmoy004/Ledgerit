@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-export default function Login({ onLogin, switchToSignup }) {
+// API Configuration
+const API_BASE_URL = process.env.REACT_APP_API_URL || `http://${window.location.hostname}:5000`;
+
+export default function Login({ onLogin, switchToSignup, onBack }) {
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -21,7 +24,7 @@ export default function Login({ onLogin, switchToSignup }) {
     setError('');
 
     try {
-      const response = await axios.post('http://localhost:5000/api/auth/login', formData);
+      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, formData);
       localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
       onLogin(response.data.user);
@@ -38,6 +41,15 @@ export default function Login({ onLogin, switchToSignup }) {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-blue-50">
+      {onBack && (
+        <button
+  onClick={onBack}
+  className="fixed top-4 left-4 z-50 h-11 w-11 rounded-full bg-white shadow-lg flex items-center justify-center text-gray-700 hover:bg-gray-100 hover:scale-105 transition"
+  aria-label="Go back"
+>
+  ←
+</button>
+      )}
       <div className="max-w-md w-full mx-4">
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <div className="text-center mb-8">
