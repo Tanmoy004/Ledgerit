@@ -557,11 +557,6 @@ def process_bordered_pdf(pdf_bytes, filename):
                         df = pd.DataFrame(df_list, columns=new_columns)
                     
                     all_pages.append(df)
-                
-                if len(all_pages) >= 2:
-                    combined_df = pd.concat(all_pages, ignore_index=True)
-                    if len(combined_df) > 50:
-                        break
     
     if not all_pages:
         return None, None, None, None
@@ -649,11 +644,6 @@ def process_borderless_pdf(pdf_bytes, filename):
                     all_pages.append(df)
             elif is_continuation_table(df, expected_columns):
                 all_pages.append(df)
-            
-            if len(all_pages) >= 2:
-                combined_df = pd.concat(all_pages, ignore_index=True)
-                if len(combined_df) > 50:
-                    break
     
     if not all_pages:
         return None, None, None, None
