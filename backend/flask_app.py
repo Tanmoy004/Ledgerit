@@ -151,16 +151,18 @@ def upload_file():
         try:
             reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
             if reader.is_encrypted:
-                if not password:
-                    return jsonify({'error': 'PDF is password protected'}), 401
-                
-                decrypted_bytes = decrypt_pdf_bytes(pdf_bytes, password)
-                if decrypted_bytes is None:
-                    return jsonify({'error': 'Wrong password'}), 401
-                pdf_bytes = decrypted_bytes
-                
-                # Count pages after successful decryption
-                reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+                # Try empty password first (some PDFs report as encrypted but don't need password)
+                if reader.decrypt('') == 0:  # Empty password failed
+                    if not password:
+                        return jsonify({'error': 'PDF is password protected'}), 401
+                    
+                    decrypted_bytes = decrypt_pdf_bytes(pdf_bytes, password)
+                    if decrypted_bytes is None:
+                        return jsonify({'error': 'Wrong password'}), 401
+                    pdf_bytes = decrypted_bytes
+                    
+                    # Count pages after successful decryption
+                    reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
             
             page_count = len(reader.pages)
         except UnicodeDecodeError:

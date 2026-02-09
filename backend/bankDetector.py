@@ -18,6 +18,38 @@ def safe_str(value):
         return ""
     return str(value).strip()
 
+def calculate_opening_balance_universal(final_df, is_reverse_chrono):
+    """Universal opening balance calculation for all bank formats"""
+    if len(final_df) == 0:
+        return None
+    
+    target_row = final_df.iloc[-1] if is_reverse_chrono else final_df.iloc[0]
+    balance_col = debit_col = credit_col = None
+    
+    for col in final_df.columns:
+        col_lower = str(col).lower()
+        if 'balance' in col_lower:
+            balance_col = col
+        elif 'debit' in col_lower or 'withdrawal' in col_lower:
+            debit_col = col
+        elif 'credit' in col_lower or 'deposit' in col_lower:
+            credit_col = col
+    
+    if balance_col and debit_col and credit_col:
+        try:
+            balance_val = float(str(target_row[balance_col]).replace('INR', '').replace(',', '').strip())
+            debit_str = str(target_row[debit_col]).replace('INR', '').replace(',', '').strip()
+            credit_str = str(target_row[credit_col]).replace('INR', '').replace(',', '').strip()
+            debit_val = float(debit_str) if debit_str and debit_str not in ['', '-', '0.00'] else 0.0
+            credit_val = float(credit_str) if credit_str and credit_str not in ['', '-', '0.00'] else 0.0
+            
+            opening = balance_val + debit_val - credit_val
+            return {'Balance': f'{opening:.2f}', 'Source': 'Calculated'}
+        except Exception as e:
+            print(f"[ERROR] Opening calc failed: {e}")
+    
+    return None
+
 def convert_date_columns(df):
     """Convert date columns to datetime type"""
     if df is None or df.empty:
@@ -548,7 +580,6 @@ def process_bordered_pdf(pdf_bytes, filename):
     if not opening_balance:
         opening_balance = pdf_opening_balance
     
-    # Detect chronological order
     is_reverse_chrono = False
     if len(final_df) >= 2:
         date_col = None
@@ -559,7 +590,6 @@ def process_bordered_pdf(pdf_bytes, filename):
         
         if date_col:
             try:
-                from dateutil import parser as date_parser
                 first_date = date_parser.parse(str(final_df.iloc[0][date_col]), fuzzy=True, dayfirst=True)
                 last_date = date_parser.parse(str(final_df.iloc[-1][date_col]), fuzzy=True, dayfirst=True)
                 is_reverse_chrono = first_date > last_date
@@ -567,36 +597,10 @@ def process_bordered_pdf(pdf_bytes, filename):
             except:
                 pass
     
-    if not opening_balance and len(final_df) > 0:
-        target_row = final_df.iloc[-1] if is_reverse_chrono else final_df.iloc[0]
-        balance_col = amount_col = type_col = None
-        
-        for col in final_df.columns:
-            col_lower = str(col).lower()
-            if 'balance' in col_lower:
-                balance_col = col
-            elif 'amount' in col_lower:
-                amount_col = col
-            elif 'dr' in col_lower and 'cr' in col_lower:
-                type_col = col
-        
-        if balance_col and amount_col and type_col:
-            try:
-                balance_val = float(str(target_row[balance_col]).replace('INR', '').replace(',', '').strip())
-                amount_val = float(str(target_row[amount_col]).replace('INR', '').replace(',', '').strip())
-                type_val = str(target_row[type_col]).strip().upper()
-                
-                if type_val == 'CR':
-                    opening = balance_val - amount_val
-                elif type_val == 'DR':
-                    opening = balance_val + amount_val
-                else:
-                    opening = balance_val
-                
-                opening_balance = {'Balance': f'{opening:.2f}', 'Source': 'Calculated'}
-                print(f"[FALLBACK] Opening Balance: {opening_balance}")
-            except Exception as e:
-                print(f"[ERROR] Opening calc failed: {e}")
+    if not opening_balance:
+        opening_balance = calculate_opening_balance_universal(final_df, is_reverse_chrono)
+        if opening_balance:
+            print(f"[FALLBACK] Opening Balance: {opening_balance}")
     
     print(f"\n=== FINAL OPENING BALANCE: {opening_balance} ===")
     
@@ -612,7 +616,6 @@ def process_bordered_pdf(pdf_bytes, filename):
     
     print(f"=== FINAL CLOSING BALANCE: {closing_balance} ===\n")
     
-    # Convert date columns to datetime type
     final_df = convert_date_columns(final_df)
     
     return final_df, opening_balance, closing_balance, transaction_total
@@ -670,7 +673,6 @@ def process_borderless_pdf(pdf_bytes, filename):
     if not opening_balance:
         opening_balance = pdf_opening_balance
     
-    # Detect chronological order
     is_reverse_chrono = False
     if len(final_df) >= 2:
         date_col = None
@@ -681,7 +683,6 @@ def process_borderless_pdf(pdf_bytes, filename):
         
         if date_col:
             try:
-                from dateutil import parser as date_parser
                 first_date = date_parser.parse(str(final_df.iloc[0][date_col]), fuzzy=True, dayfirst=True)
                 last_date = date_parser.parse(str(final_df.iloc[-1][date_col]), fuzzy=True, dayfirst=True)
                 is_reverse_chrono = first_date > last_date
@@ -689,36 +690,10 @@ def process_borderless_pdf(pdf_bytes, filename):
             except:
                 pass
     
-    if not opening_balance and len(final_df) > 0:
-        target_row = final_df.iloc[-1] if is_reverse_chrono else final_df.iloc[0]
-        balance_col = amount_col = type_col = None
-        
-        for col in final_df.columns:
-            col_lower = str(col).lower()
-            if 'balance' in col_lower:
-                balance_col = col
-            elif 'amount' in col_lower:
-                amount_col = col
-            elif 'dr' in col_lower and 'cr' in col_lower:
-                type_col = col
-        
-        if balance_col and amount_col and type_col:
-            try:
-                balance_val = float(str(target_row[balance_col]).replace('INR', '').replace(',', '').strip())
-                amount_val = float(str(target_row[amount_col]).replace('INR', '').replace(',', '').strip())
-                type_val = str(target_row[type_col]).strip().upper()
-                
-                if type_val == 'CR':
-                    opening = balance_val - amount_val
-                elif type_val == 'DR':
-                    opening = balance_val + amount_val
-                else:
-                    opening = balance_val
-                
-                opening_balance = {'Balance': f'{opening:.2f}', 'Source': 'Calculated'}
-                print(f"[FALLBACK] Opening Balance: {opening_balance}")
-            except Exception as e:
-                print(f"[ERROR] Opening calc failed: {e}")
+    if not opening_balance:
+        opening_balance = calculate_opening_balance_universal(final_df, is_reverse_chrono)
+        if opening_balance:
+            print(f"[FALLBACK] Opening Balance: {opening_balance}")
     
     print(f"\n=== FINAL OPENING BALANCE: {opening_balance} ===")
     
@@ -734,7 +709,6 @@ def process_borderless_pdf(pdf_bytes, filename):
     
     print(f"=== FINAL CLOSING BALANCE: {closing_balance} ===\n")
     
-    # Convert date columns to datetime type
     final_df = convert_date_columns(final_df)
     
     return final_df, opening_balance, closing_balance, transaction_total
