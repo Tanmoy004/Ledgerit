@@ -107,6 +107,11 @@ def parse_transactions(df):
         if any(keyword in col_str for keyword in ['cheque', 'chq', 'ref', 'reference', 'instrument']):
             df[col] = df[col].astype(str)
     
+    # Format datetime columns to date-only strings
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            df[col] = df[col].dt.strftime('%Y-%m-%d')
+    
     # Convert to array format preserving order
     transactions = []
     for _, row in df.iterrows():
