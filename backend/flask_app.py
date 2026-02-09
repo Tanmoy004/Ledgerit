@@ -101,6 +101,12 @@ def parse_transactions(df):
             column_names = first_row
             df = df.iloc[1:].reset_index(drop=True)
     
+    # Convert cheque/reference columns to string to preserve '-' and other characters
+    for col in df.columns:
+        col_str = str(col).lower()
+        if any(keyword in col_str for keyword in ['cheque', 'chq', 'ref', 'reference', 'instrument']):
+            df[col] = df[col].astype(str)
+    
     # Convert to array format preserving order
     transactions = []
     for _, row in df.iterrows():
@@ -109,6 +115,9 @@ def parse_transactions(df):
             value = str(row.iloc[i]).strip() if pd.notna(row.iloc[i]) else ""
             row_data.append(value)
         transactions.append(row_data)
+    
+    # Convert column names to strings
+    column_names = [str(col) for col in column_names]
     
     return transactions, column_names
 
@@ -185,7 +194,7 @@ def upload_file():
         
         # Validate that transactions were found
         if df is None or df.empty:
-            return jsonify({'error': 'No transactions found. Please upload a valid bank statement.'}), 400
+            return jsonify({'error': 'No transactions found in the PDF. Please ensure this is a valid bank statement with transaction tables.'}), 400
         
         # Only update page count AFTER successful validation and processing
         User.update_pages_used(user_id, page_count)
@@ -208,9 +217,15 @@ def upload_file():
         
         if opening_balance and 'Balance' in opening_balance:
             opening_bal_value = opening_balance['Balance']
+            print(f"[DEBUG] Backend opening balance: {opening_bal_value}")
+        else:
+            print("[DEBUG] No opening balance from backend")
         
         if closing_balance and 'Balance' in closing_balance:
             closing_bal_value = closing_balance['Balance']
+            print(f"[DEBUG] Backend closing balance: {closing_bal_value}")
+        else:
+            print("[DEBUG] No closing balance from backend")
         
         return jsonify({
             'transactions': transactions,

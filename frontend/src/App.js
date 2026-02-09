@@ -334,6 +334,12 @@ export default function App() {
 
   // Update opening and closing balance when transactions change
   useEffect(() => {
+    // Skip frontend calculation if backend already provided balances
+    if (metadata.opening_balance !== undefined && metadata.closing_balance !== undefined) {
+      console.log('[Frontend] Using backend balances:', metadata.opening_balance, metadata.closing_balance);
+      return;
+    }
+
     if (transactions.length > 0 && columns.length > 0) {
       const balanceColIndex = columns.findIndex(col => String(col).toLowerCase().includes('balance'));
       const dateColIndex = columns.findIndex(col => String(col).toLowerCase().includes('date') && !String(col).toLowerCase().includes('value'));
@@ -555,7 +561,7 @@ export default function App() {
       setProgress(100);
       setTransactions(res.data.transactions || []);
       setColumns(res.data.columns || []);
-      // Don't set metadata here - let frontend calculate it
+      setMetadata(res.data.metadata || {});
       setShowPasswordPrompt(false);
 
       // Update user stats if provided

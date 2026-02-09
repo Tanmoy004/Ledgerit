@@ -10,6 +10,35 @@ from pathlib import Path
 import pandas as pd
 from img2table.document import PDF
 from img2table.ocr import PaddleOCR
+from dateutil import parser as date_parser
+
+def safe_str(value):
+    """Convert any value to string safely - prevents regex errors"""
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+def convert_date_columns(df):
+    """Convert date columns to datetime type"""
+    if df is None or df.empty:
+        return df
+    
+    date_pattern = re.compile(r'date', re.IGNORECASE)
+    
+    for col in df.columns:
+        col_str = str(col).lower()
+        if date_pattern.search(col_str):
+            try:
+                df[col] = df[col].apply(lambda x: 
+                    date_parser.parse(re.sub(r'\s+', ' ', str(x)).strip(), fuzzy=True, dayfirst=True) 
+                    if pd.notna(x) and str(x).strip() not in ['', '-', 'nan'] 
+                    else pd.NaT
+                )
+                print(f"[DATE] Converted column '{col}' to datetime")
+            except Exception as e:
+                print(f"[DATE] Failed to convert column '{col}': {e}")
+    
+    return df
 
 # Bank classification lists
 BORDERED_BANKS = [
@@ -226,10 +255,7 @@ def extract_text_from_top_quarter(pdf_bytes):
 
 def extract_bank_name_from_text(text):
     """Extract bank name from text using regex"""
-    #print(f"Top quarter text: {text[:300]}...")  # Debug: show first 300 chars
-    
     matches = BANK_NAME_REGEX.findall(text)
-    #print(f"All matches found: {matches}")  # Debug: show all regex matches
     
     if matches:
         # Prioritize matches containing specific bank names
@@ -240,22 +266,53 @@ def extract_bank_name_from_text(text):
             # Check if this match contains a priority bank name
             for priority in priority_banks:
                 if priority in match_lower and 'bank' in match_lower:
-                    #(f"Priority match found: {match}")
                     return match.strip()
         
         # Find the match that contains actual bank name, not generic terms
         for match in matches:
             match_lower = match.lower().strip()
             if not match_lower.startswith(('account', 'statement', 'report')) and len(match_lower) > 5:
-                #print(f"Non-generic match found: {match}")
                 return match.strip()
         
         # If no specific bank name found, return the longest match
         longest_match = max(matches, key=len)
-        #print(f"Using longest match: {longest_match}")
         return longest_match.strip()
     
     return None
+
+def extract_balances_from_pdf(pdf_bytes):
+    """Universal balance extraction - works for ANY bank"""
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text()
+        doc.close()
+        
+        opening_balance = None
+        closing_balance = None
+        
+        opening_patterns = [
+            r'Opening\s+Balance[:\s]+(?:INR|₹|Rs\.?|USD|\$)?\\s*([0-9,]+\.\\d{2})\s*(Cr|Dr)?',
+            r'Opening\s+Bal\.?[:\s]+(?:INR|₹|Rs\.?|USD|\$)?\s*([0-9,]+\.\\d{2})\s*(Cr|Dr)?',
+            r'B/?F[:\s]+(?:INR|₹|Rs\.?|USD|\$)?\s*([0-9,]+\.\\d{2})\s*(Cr|Dr)?',
+        ]
+        
+        for pattern in opening_patterns:
+            match = re.search(pattern, full_text, re.IGNORECASE)
+            if match:
+                balance_val = match.group(1).replace(',', '')
+                cr_dr = match.group(2) if len(match.groups()) > 1 and match.group(2) else ''
+                opening_balance = {'Balance': balance_val + cr_dr, 'Source': 'PDF'}
+                print(f"[EXTRACT] Opening Balance found: {opening_balance}")
+                break
+        
+        # Disable closing balance PDF extraction - table data is more accurate
+        
+        return opening_balance, closing_balance
+    except Exception as e:
+        print(f"[EXTRACT] Balance extraction error: {e}")
+        return None, None
 
 def detect_bank_from_pdf(pdf_bytes):
     """Main function to detect bank name from top 25% of first page only"""
@@ -266,7 +323,6 @@ def detect_bank_from_pdf(pdf_bytes):
         if text.strip():
             bank_name = extract_bank_name_from_text(text)
             if bank_name:
-                #print(f"Text detection: {bank_name}")
                 return bank_name
             
         # Method 2: Logo detection from top 25% as fallback
@@ -277,7 +333,6 @@ def detect_bank_from_pdf(pdf_bytes):
             for logo in extracted_logos[:2]:
                 bank_name = match_logo_with_references(logo, reference_logos)
                 if bank_name:
-                    #print(f"Logo detection: {bank_name}")
                     return bank_name.replace('_', ' ')
         
         return None
@@ -292,7 +347,6 @@ def classify_bank_type(bank_name):
         return None, None
     
     bank_name_lower = bank_name.lower().strip()
-    #print("bnl: "+bank_name_lower)
     
     # Check for Jammu and Kashmir Bank
     if re.search(r'jammu.*kashmir.*bank', bank_name_lower):
@@ -351,6 +405,7 @@ from bordered import (
     extract_closing_balance as bordered_extract_closing_balance,
     extract_transaction_total as bordered_extract_transaction_total,
     merge_multiline_transactions as bordered_merge_multiline_transactions,
+    clean_extra_spaces as bordered_clean_extra_spaces,
     CHEQUE_NUMBER_REGEX
 )
 
@@ -363,7 +418,8 @@ from borderless import (
     extract_opening_balance as borderless_extract_opening_balance,
     extract_closing_balance as borderless_extract_closing_balance,
     extract_transaction_total as borderless_extract_transaction_total,
-    merge_multiline_transactions as borderless_merge_multiline_transactions
+    merge_multiline_transactions as borderless_merge_multiline_transactions,
+    clean_extra_spaces as borderless_clean_extra_spaces
 )
 
 # Import JK Bank parser
@@ -387,10 +443,47 @@ except ImportError:
     def process_canara_pdf(pdf_bytes, filename):
         return None, None, None, None
 
+def calculate_opening_from_first_transaction(df):
+    """Calculate opening balance from first transaction"""
+    if df.empty:
+        return None
+    
+    last_row = df.iloc[-1]
+    balance_col = debit_col = credit_col = None
+    
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if 'balance' in col_lower:
+            balance_col = col
+        elif 'debit' in col_lower or 'withdrawal' in col_lower:
+            debit_col = col
+        elif 'credit' in col_lower or 'deposit' in col_lower:
+            credit_col = col
+    
+    if balance_col:
+        try:
+            balance = str(last_row[balance_col]).replace(',', '').strip()
+            debit = str(last_row[debit_col]).replace(',', '').strip() if debit_col else '0'
+            credit = str(last_row[credit_col]).replace(',', '').strip() if credit_col else '0'
+            
+            balance_val = float(re.sub(r'[^0-9.]', '', balance)) if balance else 0
+            debit_val = float(re.sub(r'[^0-9.]', '', debit)) if debit and debit != '-' else 0
+            credit_val = float(re.sub(r'[^0-9.]', '', credit)) if credit and credit != '-' else 0
+            
+            opening = balance_val + debit_val - credit_val
+            if opening > 0:
+                return {'Balance': f'{opening:.2f}', 'Source': 'Calculated'}
+        except:
+            pass
+    
+    return None
+
 def process_bordered_pdf(pdf_bytes, filename):
     """Process PDF using bordered table logic - optimized"""
+    pdf_opening_balance, pdf_closing_balance = extract_balances_from_pdf(pdf_bytes)
+    
     pdf_doc = PDF(pdf_bytes)
-    ocr = get_ocr_instance()  # Use cached OCR instance
+    ocr = get_ocr_instance()
     
     pdf_tables = pdf_doc.extract_tables(
         ocr=ocr,
@@ -433,7 +526,6 @@ def process_bordered_pdf(pdf_bytes, filename):
                     
                     all_pages.append(df)
                 
-                # Early exit strategy: Stop if we have enough data
                 if len(all_pages) >= 2:
                     combined_df = pd.concat(all_pages, ignore_index=True)
                     if len(combined_df) > 50:
@@ -450,13 +542,87 @@ def process_bordered_pdf(pdf_bytes, filename):
     final_df, closing_balance = bordered_extract_closing_balance(final_df)
     final_df, transaction_total = bordered_extract_transaction_total(final_df)
     final_df = bordered_merge_multiline_transactions(final_df)
+    final_df = bordered_clean_extra_spaces(final_df)
+    final_df = final_df.replace(r'[^\x00-\x7F]+', '-', regex=True)
+    
+    if not opening_balance:
+        opening_balance = pdf_opening_balance
+    
+    # Detect chronological order
+    is_reverse_chrono = False
+    if len(final_df) >= 2:
+        date_col = None
+        for col in final_df.columns:
+            if 'date' in str(col).lower() and 'value' not in str(col).lower():
+                date_col = col
+                break
+        
+        if date_col:
+            try:
+                from dateutil import parser as date_parser
+                first_date = date_parser.parse(str(final_df.iloc[0][date_col]), fuzzy=True, dayfirst=True)
+                last_date = date_parser.parse(str(final_df.iloc[-1][date_col]), fuzzy=True, dayfirst=True)
+                is_reverse_chrono = first_date > last_date
+                print(f"[ORDER] Reverse chronological: {is_reverse_chrono}")
+            except:
+                pass
+    
+    if not opening_balance and len(final_df) > 0:
+        target_row = final_df.iloc[-1] if is_reverse_chrono else final_df.iloc[0]
+        balance_col = amount_col = type_col = None
+        
+        for col in final_df.columns:
+            col_lower = str(col).lower()
+            if 'balance' in col_lower:
+                balance_col = col
+            elif 'amount' in col_lower:
+                amount_col = col
+            elif 'dr' in col_lower and 'cr' in col_lower:
+                type_col = col
+        
+        if balance_col and amount_col and type_col:
+            try:
+                balance_val = float(str(target_row[balance_col]).replace('INR', '').replace(',', '').strip())
+                amount_val = float(str(target_row[amount_col]).replace('INR', '').replace(',', '').strip())
+                type_val = str(target_row[type_col]).strip().upper()
+                
+                if type_val == 'CR':
+                    opening = balance_val - amount_val
+                elif type_val == 'DR':
+                    opening = balance_val + amount_val
+                else:
+                    opening = balance_val
+                
+                opening_balance = {'Balance': f'{opening:.2f}', 'Source': 'Calculated'}
+                print(f"[FALLBACK] Opening Balance: {opening_balance}")
+            except Exception as e:
+                print(f"[ERROR] Opening calc failed: {e}")
+    
+    print(f"\n=== FINAL OPENING BALANCE: {opening_balance} ===")
+    
+    if len(final_df) > 0:
+        target_row = final_df.iloc[0] if is_reverse_chrono else final_df.iloc[-1]
+        for col in final_df.columns:
+            if 'balance' in str(col).lower():
+                balance_str = str(target_row[col]).replace('INR', '').replace(',', '').strip()
+                if balance_str and balance_str not in ['', '-', 'nan']:
+                    closing_balance = {'Balance': balance_str, 'Source': 'Table'}
+                    print(f"[TABLE] Closing Balance: {closing_balance}")
+                    break
+    
+    print(f"=== FINAL CLOSING BALANCE: {closing_balance} ===\n")
+    
+    # Convert date columns to datetime type
+    final_df = convert_date_columns(final_df)
     
     return final_df, opening_balance, closing_balance, transaction_total
 
 def process_borderless_pdf(pdf_bytes, filename):
     """Process PDF using borderless table logic - optimized"""
+    pdf_opening_balance, pdf_closing_balance = extract_balances_from_pdf(pdf_bytes)
+    
     pdf_doc = PDF(pdf_bytes)
-    ocr = get_ocr_instance()  # Use cached OCR instance
+    ocr = get_ocr_instance()
     
     pdf_tables = pdf_doc.extract_tables(
         ocr=ocr,
@@ -481,7 +647,6 @@ def process_borderless_pdf(pdf_bytes, filename):
             elif is_continuation_table(df, expected_columns):
                 all_pages.append(df)
             
-            # Early exit strategy: Stop if we have enough data
             if len(all_pages) >= 2:
                 combined_df = pd.concat(all_pages, ignore_index=True)
                 if len(combined_df) > 50:
@@ -498,6 +663,78 @@ def process_borderless_pdf(pdf_bytes, filename):
     final_df, closing_balance = borderless_extract_closing_balance(final_df)
     final_df, transaction_total = borderless_extract_transaction_total(final_df)
     final_df = borderless_merge_multiline_transactions(final_df)
+    final_df = borderless_clean_extra_spaces(final_df)
+    final_df = final_df.replace('', '-')
+    final_df = final_df.replace(r'[^\x00-\x7F]+', '-', regex=True)
+    
+    if not opening_balance:
+        opening_balance = pdf_opening_balance
+    
+    # Detect chronological order
+    is_reverse_chrono = False
+    if len(final_df) >= 2:
+        date_col = None
+        for col in final_df.columns:
+            if 'date' in str(col).lower() and 'value' not in str(col).lower():
+                date_col = col
+                break
+        
+        if date_col:
+            try:
+                from dateutil import parser as date_parser
+                first_date = date_parser.parse(str(final_df.iloc[0][date_col]), fuzzy=True, dayfirst=True)
+                last_date = date_parser.parse(str(final_df.iloc[-1][date_col]), fuzzy=True, dayfirst=True)
+                is_reverse_chrono = first_date > last_date
+                print(f"[ORDER] Reverse chronological: {is_reverse_chrono}")
+            except:
+                pass
+    
+    if not opening_balance and len(final_df) > 0:
+        target_row = final_df.iloc[-1] if is_reverse_chrono else final_df.iloc[0]
+        balance_col = amount_col = type_col = None
+        
+        for col in final_df.columns:
+            col_lower = str(col).lower()
+            if 'balance' in col_lower:
+                balance_col = col
+            elif 'amount' in col_lower:
+                amount_col = col
+            elif 'dr' in col_lower and 'cr' in col_lower:
+                type_col = col
+        
+        if balance_col and amount_col and type_col:
+            try:
+                balance_val = float(str(target_row[balance_col]).replace('INR', '').replace(',', '').strip())
+                amount_val = float(str(target_row[amount_col]).replace('INR', '').replace(',', '').strip())
+                type_val = str(target_row[type_col]).strip().upper()
+                
+                if type_val == 'CR':
+                    opening = balance_val - amount_val
+                elif type_val == 'DR':
+                    opening = balance_val + amount_val
+                else:
+                    opening = balance_val
+                
+                opening_balance = {'Balance': f'{opening:.2f}', 'Source': 'Calculated'}
+                print(f"[FALLBACK] Opening Balance: {opening_balance}")
+            except Exception as e:
+                print(f"[ERROR] Opening calc failed: {e}")
+    
+    print(f"\n=== FINAL OPENING BALANCE: {opening_balance} ===")
+    
+    if len(final_df) > 0:
+        target_row = final_df.iloc[0] if is_reverse_chrono else final_df.iloc[-1]
+        for col in final_df.columns:
+            if 'balance' in str(col).lower():
+                balance_str = str(target_row[col]).replace('INR', '').replace(',', '').strip()
+                if balance_str and balance_str not in ['', '-', 'nan']:
+                    closing_balance = {'Balance': balance_str, 'Source': 'Table'}
+                    print(f"[TABLE] Closing Balance: {closing_balance}")
+                    break
+    
+    print(f"=== FINAL CLOSING BALANCE: {closing_balance} ===\n")
+    
+    # Convert date columns to datetime type
+    final_df = convert_date_columns(final_df)
     
     return final_df, opening_balance, closing_balance, transaction_total
-

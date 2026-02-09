@@ -16,17 +16,24 @@ from pathlib import Path
 import re
 import PyPDF2
 import io
+from dateutil import parser as date_parser
+
+def safe_str(value):
+    """Convert any value to string safely - prevents regex errors"""
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
 
 HEADER_REGEX = re.compile(
     r"""
-    \b(
-        (txn\s*date|transaction\s*date|date) |
-        (transaction\s*id|txn\s*id|ref\s*no) |
-        (serial\s*no|s\.?\s*no|sr\s*no) |
-        (debit|credit) |
-        (amount|balance) |
-        (particulars|description|remarks|narration)
-    )\b
+    (
+        ₹?\s*(txn\s*date|transaction\s*date|date) |
+        ₹?\s*(transaction\s*id|txn\s*id|ref\s*no) |
+        ₹?\s*(serial\s*no|s\.?\s*no|sr\s*no) |
+        ₹?\s*(debit|credit) |
+        ₹?\s*(amount|balance) |
+        ₹?\s*(particulars|description|remarks|narration)
+    )
     """,
     re.IGNORECASE | re.VERBOSE
 )
@@ -96,6 +103,7 @@ TRANSACTION_ENTRY_REGEX = re.compile(
     (
         \d{1,2}[/-]\d{1,2}[/-]\d{2,4} |  # Date patterns DD/MM/YYYY
         \d{4}[/-]\d{1,2}[/-]\d{1,2} |    # Date patterns YYYY/MM/DD
+        \d{1,2}\s+[A-Z]{3}\s+\d{4} |     # Date patterns DD MMM YYYY
         \d{1,2}-[A-Z]{3}-\d{4} |          # Date patterns DD-MAR-YYYY
         (upi|neft|imps|rtgs|atm|pos|cheque|transfer|payment|deposit|withdrawal|ifn|tfr) |
         [A-Z]{3}/[A-Z0-9]+ |              # Transaction codes like IFN/SMEFB257837240b00
@@ -106,6 +114,21 @@ TRANSACTION_ENTRY_REGEX = re.compile(
     """,
     re.IGNORECASE | re.VERBOSE
 )
+
+def parse_date_universal(date_str):
+    """Universal date parser - handles 100+ date formats"""
+    if not date_str or pd.isna(date_str):
+        return None
+    
+    date_str = str(date_str).strip()
+    if not date_str:
+        return None
+    
+    try:
+        # Try automatic parsing (handles most formats)
+        return date_parser.parse(date_str, fuzzy=True, dayfirst=True)
+    except:
+        return None
 
 EXCLUDED_HEADER_PHRASES = [
     "Opening Balance",
@@ -119,38 +142,39 @@ EXCLUDED_HEADER_PHRASES = [
 def has_excluded_header_phrases(row):
     """Check if row contains any excluded header phrases"""
     for cell in row.dropna():
-        cell_str = str(cell).strip()
+        cell_str = safe_str(cell)
         for phrase in EXCLUDED_HEADER_PHRASES:
             if phrase.lower() in cell_str.lower():
                 return True
     return False
 
-def has_header_in_first_row(df, threshold=3):
+def has_header_in_first_row(df, threshold=2):
+    """Universal header detection - works for any bank"""
     if df.empty:
         return False
     
     first_row = df.iloc[0]
     
-    # Check if row contains excluded phrases
     if has_excluded_header_phrases(first_row):
         return False
     
     matches = 0
     for cell in first_row.dropna():
-        cell_str = str(cell).strip()
+        cell_str = safe_str(cell)
         if HEADER_REGEX.search(cell_str):
             matches += 1
     
     return matches >= threshold
 
-def has_transaction_in_first_row(df, threshold=3):
+def has_transaction_in_first_row(df, threshold=2):
+    """Universal transaction detection - works for any bank"""
     if df.empty:
         return False
     
     first_row = df.iloc[0]
     matches = 0
     for cell in first_row.dropna():
-        cell_str = str(cell).strip()
+        cell_str = safe_str(cell)
         if TRANSACTION_ENTRY_REGEX.search(cell_str):
             matches += 1
     
@@ -161,13 +185,12 @@ def find_best_header_row(df, threshold=2):
     best_matches = 0
     
     for i, row in df.iterrows():
-        # Skip rows with excluded phrases
         if has_excluded_header_phrases(row):
             continue
             
         matches = 0
         for cell in row.dropna():
-            cell_str = str(cell).strip()
+            cell_str = safe_str(cell)
             if HEADER_REGEX.search(cell_str):
                 matches += 1
         
@@ -181,16 +204,13 @@ def process_header_and_duplicates(df):
     if df.empty:
         return df
     
-    # Find best header row
     header_row_idx = find_best_header_row(df)
     if header_row_idx is None:
         return df
     
-    # Extract header row and set column names
     header_row = df.iloc[header_row_idx]
     columns = header_row.fillna("").astype(str).str.strip()
     
-    # Handle duplicate column names
     seen = {}
     new_columns = []
     for col in columns:
@@ -201,16 +221,14 @@ def process_header_and_duplicates(df):
             seen[col] = 0
             new_columns.append(col)
     
-    # Set new column names
     df.columns = new_columns
     
-    # Remove the header row itself and any duplicate header rows
     rows_to_drop = [header_row_idx]
     for j, row in df.iterrows():
         if j != header_row_idx:
             matches = 0
             for cell in row.dropna():
-                cell_str = str(cell).strip()
+                cell_str = safe_str(cell)
                 if HEADER_REGEX.search(cell_str):
                     matches += 1
             if matches >= 3:
@@ -223,13 +241,26 @@ def extract_opening_balance(df):
     if df.empty:
         return df, None
     
-    first_row = df.iloc[0]
-    for cell in first_row.dropna():
-        cell_str = str(cell).strip()
-        if OPENING_BALANCE_REGEX.search(cell_str):
-            opening_balance = first_row.to_dict()
-            df = df.iloc[1:].reset_index(drop=True)
-            return df, opening_balance
+    for idx in range(min(3, len(df))):
+        row = df.iloc[idx]
+        for cell in row.dropna():
+            cell_str = safe_str(cell)
+            if OPENING_BALANCE_REGEX.search(cell_str):
+                balance_amount = None
+                for val in row.dropna():
+                    val_str = safe_str(val)
+                    match = re.search(r'([0-9,]+\.?\d{0,2})\s*(Cr|Dr)?', val_str)
+                    if match and match.group(1) != cell_str:
+                        balance_val = match.group(1).replace(',', '')
+                        cr_dr = match.group(2) if match.group(2) else ''
+                        balance_amount = balance_val + cr_dr
+                        break
+                
+                if balance_amount:
+                    opening_balance = {'Balance': balance_amount, 'Source': 'Table'}
+                    print(f"[TABLE] Opening Balance: {opening_balance}")
+                    df = df.iloc[idx+1:].reset_index(drop=True)
+                    return df, opening_balance
     
     return df, None
 
@@ -237,13 +268,26 @@ def extract_closing_balance(df):
     if df.empty:
         return df, None
     
-    last_row = df.iloc[-1]
-    for cell in last_row.dropna():
-        cell_str = str(cell).strip()
-        if CLOSING_BALANCE_REGEX.search(cell_str):
-            closing_balance = last_row.to_dict()
-            df = df.iloc[:-1].reset_index(drop=True)
-            return df, closing_balance
+    for idx in range(max(0, len(df)-3), len(df)):
+        row = df.iloc[idx]
+        for cell in row.dropna():
+            cell_str = safe_str(cell)
+            if CLOSING_BALANCE_REGEX.search(cell_str):
+                balance_amount = None
+                for val in row.dropna():
+                    val_str = safe_str(val)
+                    match = re.search(r'([0-9,]+\.?\d{0,2})\s*(Cr|Dr)?', val_str)
+                    if match and match.group(1) != cell_str:
+                        balance_val = match.group(1).replace(',', '')
+                        cr_dr = match.group(2) if match.group(2) else ''
+                        balance_amount = balance_val + cr_dr
+                        break
+                
+                if balance_amount:
+                    closing_balance = {'Balance': balance_amount, 'Source': 'Table'}
+                    print(f"[TABLE] Closing Balance: {closing_balance}")
+                    df = df.iloc[:idx].reset_index(drop=True)
+                    return df, closing_balance
     
     return df, None
 
@@ -253,7 +297,7 @@ def extract_transaction_total(df):
     
     last_row = df.iloc[-1]
     for cell in last_row.dropna():
-        cell_str = str(cell).strip()
+        cell_str = safe_str(cell)
         if TRANSACTION_TOTAL_REGEX.search(cell_str):
             transaction_total = last_row.to_dict()
             df = df.iloc[:-1].reset_index(drop=True)
@@ -296,6 +340,24 @@ def merge_multiline_transactions(df: pd.DataFrame, max_empty=2) -> pd.DataFrame:
 
     df.drop(index=rows_to_drop, inplace=True)
     df.reset_index(drop=True, inplace=True)
+    return df
+
+def clean_extra_spaces(df):
+    """Remove extra spaces from OCR text"""
+    df = df.copy()
+    for col in df.columns:
+        # Convert to string and handle all space issues
+        df[col] = df[col].astype(str)
+        # Remove multiple spaces
+        df[col] = df[col].str.replace(r'\s+', ' ', regex=True)
+        # Fix "- 2024" to "-2024" (space after hyphen before year)
+        df[col] = df[col].str.replace(r'-\s+(\d{4})', r'-\1', regex=True)
+        # Fix "APR- " to "APR-" (space after hyphen after month)
+        df[col] = df[col].str.replace(r'([A-Z]{3,4})-\s+', r'\1-', regex=True)
+        # Fix "- MAR" to "-MAR" (space after hyphen before month)
+        df[col] = df[col].str.replace(r'-\s+([A-Z]{3,4})', r'-\1', regex=True)
+        # Strip leading/trailing spaces
+        df[col] = df[col].str.strip()
     return df
 
 def decrypt_pdf_bytes(pdf_bytes, password):

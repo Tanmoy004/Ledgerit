@@ -4,6 +4,7 @@ import pdfplumber
 from datetime import datetime
 import pandas as pd
 import io
+from dateutil import parser as date_parser
 
 def merge_multiline_transactions(df: pd.DataFrame, max_empty=2) -> pd.DataFrame:
     """Merge multiline transactions - same logic as other parsers"""
@@ -41,6 +42,28 @@ def merge_multiline_transactions(df: pd.DataFrame, max_empty=2) -> pd.DataFrame:
 
     df.drop(index=rows_to_drop, inplace=True)
     df.reset_index(drop=True, inplace=True)
+    return df
+
+def convert_date_columns(df):
+    """Convert date columns to datetime type"""
+    if df is None or df.empty:
+        return df
+    
+    date_pattern = re.compile(r'date', re.IGNORECASE)
+    
+    for col in df.columns:
+        col_str = str(col).lower()
+        if date_pattern.search(col_str):
+            try:
+                df[col] = df[col].apply(lambda x: 
+                    date_parser.parse(re.sub(r'\s+', ' ', str(x)).strip(), fuzzy=True, dayfirst=True) 
+                    if pd.notna(x) and str(x).strip() not in ['', '-', 'nan'] 
+                    else pd.NaT
+                )
+                print(f"[DATE] Converted column '{col}' to datetime")
+            except Exception as e:
+                print(f"[DATE] Failed to convert column '{col}': {e}")
+    
     return df
 
 class Transaction:
@@ -276,6 +299,9 @@ def process_canara_pdf(pdf_bytes, filename):
         
         # Apply multiline transaction merging
         df = merge_multiline_transactions(df)
+        
+        # Convert date columns to datetime type
+        df = convert_date_columns(df)
         
         # Extract balances - fix opening balance calculation
         if transactions:

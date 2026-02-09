@@ -4,9 +4,38 @@ from img2table.document import PDF
 from img2table.ocr import PaddleOCR
 import PyPDF2
 import io
+from dateutil import parser as date_parser
+
+def safe_str(value):
+    """Convert any value to string safely - prevents regex errors"""
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
 
 def get_ocr_instance():
     return PaddleOCR(lang="en")
+
+def convert_date_columns(df):
+    """Convert date columns to datetime type"""
+    if df is None or df.empty:
+        return df
+    
+    date_pattern = re.compile(r'date', re.IGNORECASE)
+    
+    for col in df.columns:
+        col_str = str(col).lower()
+        if date_pattern.search(col_str):
+            try:
+                df[col] = df[col].apply(lambda x: 
+                    date_parser.parse(re.sub(r'\s+', ' ', str(x)).strip(), fuzzy=True, dayfirst=True) 
+                    if pd.notna(x) and str(x).strip() not in ['', '-', 'nan'] 
+                    else pd.NaT
+                )
+                print(f"[DATE] Converted column '{col}' to datetime")
+            except Exception as e:
+                print(f"[DATE] Failed to convert column '{col}': {e}")
+    
+    return df
 
 def process_jk_pdf(pdf_bytes, filename):
     """Process JK Bank PDF with custom logic"""
@@ -159,6 +188,9 @@ def process_jk_pdf(pdf_bytes, filename):
             return None, None, None, None
         
         final_df = pd.DataFrame(all_rows)
+        
+        # Convert date columns to datetime type
+        final_df = convert_date_columns(final_df)
         
         # Opening balance is the B/F balance we captured
         opening_balance = {'Balance': opening_balance_value} if opening_balance_value else None
