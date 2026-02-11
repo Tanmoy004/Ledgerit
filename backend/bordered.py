@@ -241,26 +241,27 @@ def extract_opening_balance(df):
     if df.empty:
         return df, None
     
-    for idx in range(min(3, len(df))):
+    for idx in range(min(5, len(df))):
         row = df.iloc[idx]
+        # Check if any cell contains B/F or opening balance keywords
         for cell in row.dropna():
-            cell_str = safe_str(cell)
-            if OPENING_BALANCE_REGEX.search(cell_str):
-                balance_amount = None
-                for val in row.dropna():
-                    val_str = safe_str(val)
-                    match = re.search(r'([0-9,]+\.?\d{0,2})\s*(Cr|Dr)?', val_str)
-                    if match and match.group(1) != cell_str:
-                        balance_val = match.group(1).replace(',', '')
-                        cr_dr = match.group(2) if match.group(2) else ''
-                        balance_amount = balance_val + cr_dr
+            cell_str = safe_str(cell).lower()
+            if 'b/f' in cell_str or 'brought forward' in cell_str or 'opening balance' in cell_str:
+                # Found B/F row, extract balance from balance column
+                balance_col_idx = None
+                for i, col in enumerate(df.columns):
+                    if 'balance' in str(col).lower():
+                        balance_col_idx = i
                         break
                 
-                if balance_amount:
-                    opening_balance = {'Balance': balance_amount, 'Source': 'Table'}
-                    print(f"[TABLE] Opening Balance: {opening_balance}")
-                    df = df.iloc[idx+1:].reset_index(drop=True)
-                    return df, opening_balance
+                if balance_col_idx is not None:
+                    balance_val = safe_str(row.iloc[balance_col_idx])
+                    balance_val = balance_val.replace(',', '').replace('INR', '').strip()
+                    if balance_val and balance_val not in ['', '-']:
+                        opening_balance = {'Balance': balance_val, 'Source': 'Table'}
+                        print(f"[TABLE] Opening Balance from B/F: {opening_balance}")
+                        df = df.drop(index=idx).reset_index(drop=True)
+                        return df, opening_balance
     
     return df, None
 
@@ -311,11 +312,26 @@ def merge_multiline_transactions(df: pd.DataFrame, max_empty=2) -> pd.DataFrame:
 
     def is_empty(x):
         return pd.isna(x) or str(x).strip() == ""
+    
+    def has_date_in_first_col(row):
+        """Check if first column contains a valid date"""
+        if df.empty or len(row) == 0:
+            return False
+        first_val = str(row.iloc[0]).strip()
+        if not first_val or first_val == "":
+            return False
+        return parse_date_universal(first_val) is not None
 
     base_row_idx = None
 
     for i in range(1, len(df)):
         row = df.iloc[i]
+        
+        # If row has a date in first column, it's a new transaction
+        if has_date_in_first_col(row):
+            base_row_idx = i
+            continue
+        
         empty_count = sum(is_empty(v) for v in row)
 
         if empty_count <= max_empty:

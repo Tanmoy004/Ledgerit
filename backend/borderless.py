@@ -258,11 +258,9 @@ def process_header_and_duplicates(df):
         return df
     
     all_header_rows = find_all_header_rows(df)
-    if not all_header_rows:
-        return df
-    
     header_row_idx = find_best_header_row(df)
-    if header_row_idx is None:
+    
+    if not all_header_rows or header_row_idx is None:
         return df
     
     first_header_idx = min(all_header_rows)

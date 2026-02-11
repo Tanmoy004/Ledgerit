@@ -35,6 +35,8 @@ def clean_xml_text(text):
     return cleaned.strip()
 
 # Force reload modules
+if 'ifsc_detector' in sys.modules:
+    importlib.reload(sys.modules['ifsc_detector'])
 if 'bankDetector' in sys.modules:
     importlib.reload(sys.modules['bankDetector'])
 if 'bordered' in sys.modules:
